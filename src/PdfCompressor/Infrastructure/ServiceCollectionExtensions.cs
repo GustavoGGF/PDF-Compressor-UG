@@ -16,6 +16,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IFileManagerService, FileManagerService>();
         services.AddSingleton<IDiagnosticLogger, DiagnosticLogger>();
         services.AddSingleton<IPdfAnalyzerService, PdfAnalyzerService>();
+        services.AddSingleton<IGhostscriptSystemEnvironment, DefaultGhostscriptSystemEnvironment>();
+        services.AddSingleton<IGhostscriptLocator, GhostscriptLocator>();
+        services.AddSingleton<IGhostscriptProcessStarter, DefaultGhostscriptProcessStarter>();
+        services.AddSingleton<IGhostscriptProcessRunner, GhostscriptProcessRunner>();
         return services;
     }
 }
