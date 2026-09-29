@@ -86,4 +86,29 @@ public sealed class DiagnosticLoggerTests : IDisposable
         Assert.Contains("FinalDpi=200", content);
         Assert.Contains("Attempts=2", content);
     }
+
+    [Fact]
+    public void LogAnalysisSummary_LogsMetricsWithoutDocumentContentsOrSensitivePaths()
+    {
+        var info = new PdfInfo(
+            FilePath: "/secret/folder/confidencial.pdf",
+            FileSizeBytes: 1_234_567,
+            PageCount: 3,
+            HasLikelySignature: true,
+            IsEncrypted: false,
+            IsValid: true,
+            WarningMessage: PdfInfo.DefaultSignatureWarningMessage
+        );
+
+        _logger.LogAnalysisSummary(info);
+
+        string content = File.ReadAllText(_testLogFilePath);
+        Assert.Contains("File=confidencial.pdf", content);
+        Assert.DoesNotContain("/secret/folder/", content);
+        Assert.Contains("Status=Warning", content);
+        Assert.Contains("Pages=3", content);
+        Assert.Contains("HasSignature=True", content);
+        Assert.Contains("Encrypted=False", content);
+        Assert.Contains(PdfInfo.DefaultSignatureWarningMessage, content);
+    }
 }

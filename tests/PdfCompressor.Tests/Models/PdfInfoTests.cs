@@ -19,6 +19,7 @@ public sealed class PdfInfoTests
         );
 
         Assert.Equal(5.25, info.FileSizeMb);
+        Assert.Equal(PdfAnalysisStatus.Success, info.Status);
     }
 
     [Fact]
@@ -34,6 +35,7 @@ public sealed class PdfInfoTests
         );
 
         Assert.Equal(0.0, info.FileSizeMb);
+        Assert.Equal(PdfAnalysisStatus.Success, info.Status);
     }
 
     [Fact]
@@ -52,5 +54,46 @@ public sealed class PdfInfoTests
         Assert.False(info.IsValid);
         Assert.Null(info.PageCount);
         Assert.Equal("Arquivo corrompido", info.ErrorMessage);
+        Assert.Equal(PdfAnalysisStatus.Failed, info.Status);
+    }
+
+    [Fact]
+    public void WarningStatus_WhenSignatureDetected()
+    {
+        var info = PdfInfo.Warning(
+            filePath: "signed.pdf",
+            fileSizeBytes: 2_000_000,
+            pageCount: 3,
+            hasLikelySignature: true,
+            warningMessage: PdfInfo.DefaultSignatureWarningMessage
+        );
+
+        Assert.True(info.IsValid);
+        Assert.True(info.HasLikelySignature);
+        Assert.Equal(PdfAnalysisStatus.Warning, info.Status);
+        Assert.Equal(PdfInfo.DefaultSignatureWarningMessage, info.WarningMessage);
+    }
+
+    [Fact]
+    public void FailedFactory_ProducesExpectedFailedRecord()
+    {
+        var info = PdfInfo.Failed("error.pdf", "Arquivo não encontrado", 0);
+
+        Assert.False(info.IsValid);
+        Assert.Equal(PdfAnalysisStatus.Failed, info.Status);
+        Assert.Equal("Arquivo não encontrado", info.ErrorMessage);
+        Assert.Null(info.PageCount);
+    }
+
+    [Fact]
+    public void SuccessFactory_ProducesExpectedSuccessRecord()
+    {
+        var info = PdfInfo.Success("valid.pdf", 1_500_000, 4);
+
+        Assert.True(info.IsValid);
+        Assert.Equal(PdfAnalysisStatus.Success, info.Status);
+        Assert.Equal(4, info.PageCount);
+        Assert.False(info.HasLikelySignature);
+        Assert.False(info.IsEncrypted);
     }
 }

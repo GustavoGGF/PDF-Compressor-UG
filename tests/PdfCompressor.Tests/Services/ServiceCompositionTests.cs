@@ -15,8 +15,10 @@ public sealed class ServiceCompositionTests
 
         Assert.NotNull(container.FileManager);
         Assert.NotNull(container.Logger);
+        Assert.NotNull(container.PdfAnalyzer);
         Assert.IsType<FileManagerService>(container.FileManager);
         Assert.IsType<DiagnosticLogger>(container.Logger);
+        Assert.IsType<PdfAnalyzerService>(container.PdfAnalyzer);
     }
 
     [Fact]
