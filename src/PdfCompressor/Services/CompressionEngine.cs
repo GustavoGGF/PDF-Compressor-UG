@@ -128,7 +128,7 @@ public sealed class CompressionEngine : ICompressionEngine
 
         // Resolução do arquivo de saída final com garantia de não colisão com a entrada
         string finalOutputPath = options.OverwriteTarget
-            ? Path.Combine(options.TargetDirectory, $"{Path.GetFileNameWithoutExtension(options.SourceFilePath)}_compressed{(Path.GetExtension(options.SourceFilePath) is { Length: > 0 } ext ? ext : ".pdf")}")
+            ? Path.Combine(options.TargetDirectory, $"{Path.GetFileNameWithoutExtension(options.SourceFilePath)}_compactado{(Path.GetExtension(options.SourceFilePath) is { Length: > 0 } ext ? ext : ".pdf")}")
             : _fileManager.GenerateSafeOutputFilePath(options.SourceFilePath, options.TargetDirectory);
 
         string fullSource = Path.GetFullPath(options.SourceFilePath);
@@ -140,7 +140,7 @@ public sealed class CompressionEngine : ICompressionEngine
                 sourcePath: options.SourceFilePath,
                 originalSize: pdfInfo.FileSizeBytes,
                 duration: totalStopwatch.Elapsed,
-                message: "O caminho de saída não pode ser idêntico ao arquivo de entrada para garantir sua imutabilidade."
+                message: "O caminho de saída não pode ser idêntico ao arquivo de entrada para garantir sua imutabilidade. Escolha outro nome ou pasta de destino para preservar o original."
             );
         }
 
@@ -280,7 +280,7 @@ public sealed class CompressionEngine : ICompressionEngine
 
             if (eligibleCandidate != null)
             {
-                if (!TryPromoteCandidate(eligibleCandidate.Value.FilePath, finalOutputPath, out string? copyError))
+                if (!_fileManager.TryPromoteFile(eligibleCandidate.Value.FilePath, finalOutputPath, out string? copyError))
                 {
                     return CreateErrorResult(
                         CompressionStatus.EngineFailed,
@@ -288,7 +288,7 @@ public sealed class CompressionEngine : ICompressionEngine
                         originalSize: pdfInfo.FileSizeBytes,
                         duration: totalStopwatch.Elapsed,
                         attempts: attempts,
-                        message: $"Falha ao gravar arquivo no destino final: {copyError}"
+                        message: copyError ?? "Falha ao gravar arquivo compactado no destino final."
                     );
                 }
 
@@ -318,7 +318,7 @@ public sealed class CompressionEngine : ICompressionEngine
 
             if (smallestAboveTargetCandidate != null)
             {
-                if (!TryPromoteCandidate(smallestAboveTargetCandidate.Value.FilePath, finalOutputPath, out string? copyError))
+                if (!_fileManager.TryPromoteFile(smallestAboveTargetCandidate.Value.FilePath, finalOutputPath, out string? copyError))
                 {
                     return CreateErrorResult(
                         CompressionStatus.EngineFailed,
@@ -326,7 +326,7 @@ public sealed class CompressionEngine : ICompressionEngine
                         originalSize: pdfInfo.FileSizeBytes,
                         duration: totalStopwatch.Elapsed,
                         attempts: attempts,
-                        message: $"Falha ao gravar arquivo de melhor esforço no destino: {copyError}"
+                        message: copyError ?? "Falha ao gravar arquivo de melhor esforço no destino final."
                     );
                 }
 
@@ -367,7 +367,7 @@ public sealed class CompressionEngine : ICompressionEngine
                 FinalDpi: null,
                 Attempts: attempts,
                 TotalDuration: totalStopwatch.Elapsed,
-                Message: "Nenhuma das tentativas de compressão gerou um arquivo PDF válido."
+                Message: "Nenhuma das tentativas de compressão gerou um arquivo PDF válido. O documento pode conter elementos incompatíveis ou estar corrompido."
             );
 
             _logger.LogCompressionSummary(failedResult);
@@ -375,29 +375,12 @@ public sealed class CompressionEngine : ICompressionEngine
         }
         finally
         {
-            // Limpeza estrita de todos os intermediários da sessão
-            _fileManager.SafeDeleteDirectory(sessionTempDir);
-        }
-    }
-
-    private static bool TryPromoteCandidate(string candidateFilePath, string finalOutputPath, out string? errorMessage)
-    {
-        try
-        {
-            string? destinationDir = Path.GetDirectoryName(finalOutputPath);
-            if (!string.IsNullOrEmpty(destinationDir) && !Directory.Exists(destinationDir))
+            // Limpeza estrita de todos os intermediários da sessão com auditoria de diagnóstico
+            bool cleaned = _fileManager.SafeDeleteDirectory(sessionTempDir);
+            if (!cleaned)
             {
-                Directory.CreateDirectory(destinationDir);
+                _logger.LogWarning($"Aviso de limpeza: O diretório temporário de sessão '{sessionTempDir}' não pôde ser completamente excluído.");
             }
-
-            File.Copy(candidateFilePath, finalOutputPath, overwrite: true);
-            errorMessage = null;
-            return true;
-        }
-        catch (Exception ex)
-        {
-            errorMessage = ex.Message;
-            return false;
         }
     }
 

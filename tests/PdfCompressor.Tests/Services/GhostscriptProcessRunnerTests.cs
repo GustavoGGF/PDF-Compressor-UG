@@ -340,5 +340,6 @@ public sealed class GhostscriptProcessRunnerTests : IDisposable
         public void LogError(string message, Exception? ex = null) => Logs.Add($"[ERROR] {message} {ex?.Message}");
         public void LogCompressionSummary(CompressionResult result) => Logs.Add($"[SUMMARY] {result.Status}");
         public void LogAnalysisSummary(PdfInfo info) => Logs.Add($"[ANALYSIS] {info.FilePath}");
+        public void LogCleanup(string targetPath, bool succeeded, string? details = null) => Logs.Add($"[CLEANUP] {targetPath} Succeeded={succeeded}");
     }
 }

@@ -60,7 +60,7 @@ public sealed class DiagnosticLoggerTests : IDisposable
         var result = new CompressionResult(
             Status: CompressionStatus.TargetMet,
             SourceFilePath: "/secret/path/to/sensivel.pdf",
-            OutputFilePath: "/secret/path/to/sensivel_compressed.pdf",
+            OutputFilePath: "/secret/path/to/sensivel_compactado.pdf",
             OriginalSizeBytes: 5_000_000,
             FinalSizeBytes: 2_000_000,
             FinalDpi: 200,
@@ -74,7 +74,7 @@ public sealed class DiagnosticLoggerTests : IDisposable
         _logger.LogCompressionSummary(result);
 
         string content = File.ReadAllText(_testLogFilePath);
-        // Garante que o nome base é registrado
+        // Garante que apenas o nome base é registrado
         Assert.Contains("File=sensivel.pdf", content);
         // Garante que o caminho sensível não é vazado no resumo
         Assert.DoesNotContain("/secret/path/to/", content);
@@ -110,5 +110,48 @@ public sealed class DiagnosticLoggerTests : IDisposable
         Assert.Contains("HasSignature=True", content);
         Assert.Contains("Encrypted=False", content);
         Assert.Contains(PdfInfo.DefaultSignatureWarningMessage, content);
+    }
+
+    [Fact]
+    public void LogCleanup_LogsTargetAndStatusSanitized()
+    {
+        _logger.LogCleanup("/secret/dir/attempt_123", succeeded: true);
+        _logger.LogCleanup("/secret/dir/locked_file.tmp", succeeded: false, details: "Sharing violation");
+
+        string content = File.ReadAllText(_testLogFilePath);
+        Assert.Contains("[INFO] Cleanup: Target=attempt_123, Succeeded=True, Details=OK", content);
+        Assert.Contains("[WARN] Cleanup: Target=locked_file.tmp, Succeeded=False, Details=Sharing violation", content);
+        Assert.DoesNotContain("/secret/dir/", content);
+    }
+
+    [Fact]
+    public void SanitizeMessage_RedactsPdfStreamsAndEliminatesLineBreaks()
+    {
+        string rawMessage = "Diagnostic stream:\r\n%PDF-1.7\r\n4 0 obj\r\nendobj";
+        _logger.LogInfo(rawMessage);
+
+        string content = File.ReadAllText(_testLogFilePath);
+        Assert.DoesNotContain("%PDF-", content);
+        Assert.Contains("[PDF_STREAM_REDACTED]", content);
+
+        // Cada linha do arquivo de log deve ter exatamente uma entrada completa
+        string[] lines = content.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        Assert.Single(lines);
+    }
+
+    [Fact]
+    public void LogRotation_WhenFileSizeExceedsLimit_RotatesLogFiles()
+    {
+        string rotatingLogPath = Path.Combine(_testLogDirectory, "rotating.log");
+        // Limite muito baixo (100 bytes) e até 2 arquivos de histórico
+        var rotatingLogger = new DiagnosticLogger(rotatingLogPath, maxFileSizeBytes: 100, maxArchivedFiles: 2);
+
+        for (int i = 0; i < 10; i++)
+        {
+            rotatingLogger.LogInfo($"Mensagem de teste {i} com tamanho considerável para forçar rotação.");
+        }
+
+        Assert.True(File.Exists(rotatingLogPath));
+        Assert.True(File.Exists($"{rotatingLogPath}.1"));
     }
 }

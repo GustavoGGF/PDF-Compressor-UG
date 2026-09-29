@@ -72,10 +72,16 @@ public sealed class CompressionEngineIntegrationTests : IDisposable
         Assert.Equal(CompressionStatus.TargetMet, result.Status);
         Assert.NotNull(result.OutputFilePath);
         Assert.True(File.Exists(result.OutputFilePath));
+        Assert.EndsWith("_compactado.pdf", result.OutputFilePath, StringComparison.OrdinalIgnoreCase);
         Assert.True(result.FinalSizeBytes > 0);
         Assert.NotNull(result.FinalDpi);
         Assert.NotEmpty(result.Attempts);
         Assert.True(result.Attempts[0].Succeeded);
+
+        // Valida que o FileLauncherService aprova o arquivo gerado
+        var launcher = new FileLauncherService(logger, _ => { });
+        Assert.True(launcher.OpenPdf(result.OutputFilePath));
+        Assert.True(launcher.OpenFolderContainingFile(result.OutputFilePath));
 
         // Verifica que o original está intacto
         Assert.True(File.Exists(sourcePdf));

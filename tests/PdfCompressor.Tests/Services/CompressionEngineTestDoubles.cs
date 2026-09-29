@@ -100,7 +100,7 @@ internal sealed class TrackingFileManager : IFileManagerService
 
         string dir = targetDirectory ?? _baseDir;
         string name = Path.GetFileNameWithoutExtension(sourceFilePath);
-        return Path.Combine(dir, $"{name}_compressed.pdf");
+        return Path.Combine(dir, $"{name}_compactado.pdf");
     }
 
     public string CreateIsolatedTempDirectory()
@@ -111,7 +111,7 @@ internal sealed class TrackingFileManager : IFileManagerService
         return dir;
     }
 
-    public void SafeDeleteDirectory(string directoryPath)
+    public bool SafeDeleteDirectory(string directoryPath)
     {
         DeletedDirectories.Add(directoryPath);
         try
@@ -120,14 +120,15 @@ internal sealed class TrackingFileManager : IFileManagerService
             {
                 Directory.Delete(directoryPath, recursive: true);
             }
+            return true;
         }
         catch
         {
-            // Limpeza silenciosa
+            return false;
         }
     }
 
-    public void SafeDeleteFile(string filePath)
+    public bool SafeDeleteFile(string filePath)
     {
         try
         {
@@ -135,10 +136,41 @@ internal sealed class TrackingFileManager : IFileManagerService
             {
                 File.Delete(filePath);
             }
+            return true;
         }
         catch
         {
-            // Limpeza silenciosa
+            return false;
+        }
+    }
+
+    public bool FailPromotion { get; set; }
+    public string? FailPromotionErrorMessage { get; set; }
+
+    public bool TryPromoteFile(string sourceTempPath, string destinationPath, out string? errorMessage)
+    {
+        if (FailPromotion)
+        {
+            errorMessage = FailPromotionErrorMessage ?? "Falha simulada ao gravar arquivo no destino.";
+            return false;
+        }
+
+        try
+        {
+            string? dir = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            File.Copy(sourceTempPath, destinationPath, overwrite: true);
+            errorMessage = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+            return false;
         }
     }
 }
@@ -147,10 +179,13 @@ internal sealed class MemoryLogger : IDiagnosticLogger
 {
     public List<string> Entries { get; } = [];
     public List<CompressionResult> Summaries { get; } = [];
+    public List<(string Target, bool Succeeded, string? Details)> CleanupLogs { get; } = [];
 
     public void LogInfo(string message) => Entries.Add($"INFO: {message}");
     public void LogWarning(string message) => Entries.Add($"WARN: {message}");
     public void LogError(string message, Exception? ex = null) => Entries.Add($"ERROR: {message} {ex?.Message}");
     public void LogCompressionSummary(CompressionResult result) => Summaries.Add(result);
     public void LogAnalysisSummary(PdfInfo info) => Entries.Add($"ANALYSIS: {info.FilePath}");
+    public void LogCleanup(string targetPath, bool succeeded, string? details = null) =>
+        CleanupLogs.Add((targetPath, succeeded, details));
 }

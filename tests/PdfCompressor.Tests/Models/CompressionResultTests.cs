@@ -11,7 +11,7 @@ public sealed class CompressionResultTests
         var result = new CompressionResult(
             Status: CompressionStatus.TargetMet,
             SourceFilePath: "test.pdf",
-            OutputFilePath: "test_compressed.pdf",
+            OutputFilePath: "test_compactado.pdf",
             OriginalSizeBytes: 10_000_000,
             FinalSizeBytes: 4_000_000,
             FinalDpi: 150,
@@ -30,7 +30,7 @@ public sealed class CompressionResultTests
         var result = new CompressionResult(
             Status: CompressionStatus.BestEffortAboveTarget,
             SourceFilePath: "test.pdf",
-            OutputFilePath: "test_compressed.pdf",
+            OutputFilePath: "test_compactado.pdf",
             OriginalSizeBytes: 1_000_000,
             FinalSizeBytes: 1_200_000,
             FinalDpi: 72,
