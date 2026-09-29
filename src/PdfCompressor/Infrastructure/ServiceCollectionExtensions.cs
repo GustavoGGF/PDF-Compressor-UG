@@ -13,8 +13,9 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddPdfCompressorCoreServices(this IServiceCollection services)
     {
-        services.AddSingleton<IFileManagerService, FileManagerService>();
         services.AddSingleton<IDiagnosticLogger, DiagnosticLogger>();
+        services.AddSingleton<IFileManagerService, FileManagerService>();
+        services.AddSingleton<IFileLauncherService, FileLauncherService>();
         services.AddSingleton<IPdfAnalyzerService, PdfAnalyzerService>();
         services.AddSingleton<IGhostscriptSystemEnvironment, DefaultGhostscriptSystemEnvironment>();
         services.AddSingleton<IGhostscriptLocator, GhostscriptLocator>();

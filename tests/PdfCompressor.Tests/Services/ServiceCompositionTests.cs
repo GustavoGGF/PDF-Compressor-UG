@@ -15,12 +15,14 @@ public sealed class ServiceCompositionTests
 
         Assert.NotNull(container.FileManager);
         Assert.NotNull(container.Logger);
+        Assert.NotNull(container.FileLauncher);
         Assert.NotNull(container.PdfAnalyzer);
         Assert.NotNull(container.GhostscriptLocator);
         Assert.NotNull(container.ProcessRunner);
         Assert.NotNull(container.CompressionEngine);
         Assert.IsType<FileManagerService>(container.FileManager);
         Assert.IsType<DiagnosticLogger>(container.Logger);
+        Assert.IsType<FileLauncherService>(container.FileLauncher);
         Assert.IsType<PdfAnalyzerService>(container.PdfAnalyzer);
         Assert.IsType<GhostscriptLocator>(container.GhostscriptLocator);
         Assert.IsType<GhostscriptProcessRunner>(container.ProcessRunner);
