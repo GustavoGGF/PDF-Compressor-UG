@@ -42,7 +42,7 @@ public sealed class AppServiceContainer
 
     public IFileManagerService FileManager => _serviceProvider.GetRequiredService<IFileManagerService>();
     public IDiagnosticLogger Logger => _serviceProvider.GetRequiredService<IDiagnosticLogger>();
-    public IPdfAnalyzerService? PdfAnalyzer => _serviceProvider.GetService<IPdfAnalyzerService>();
+    public IPdfAnalyzerService PdfAnalyzer => _serviceProvider.GetRequiredService<IPdfAnalyzerService>();
     public IGhostscriptLocator? GhostscriptLocator => _serviceProvider.GetService<IGhostscriptLocator>();
     public IGhostscriptProcessRunner? ProcessRunner => _serviceProvider.GetService<IGhostscriptProcessRunner>();
     public ICompressionEngine? CompressionEngine => _serviceProvider.GetService<ICompressionEngine>();

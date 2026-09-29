@@ -15,6 +15,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton<IFileManagerService, FileManagerService>();
         services.AddSingleton<IDiagnosticLogger, DiagnosticLogger>();
+        services.AddSingleton<IPdfAnalyzerService, PdfAnalyzerService>();
         return services;
     }
 }

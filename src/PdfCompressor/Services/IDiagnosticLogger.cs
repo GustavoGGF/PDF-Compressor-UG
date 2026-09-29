@@ -26,4 +26,9 @@ public interface IDiagnosticLogger
     /// Registra o resumo da compressão sem dados sensíveis.
     /// </summary>
     void LogCompressionSummary(CompressionResult result);
+
+    /// <summary>
+    /// Registra o resumo da análise preliminar do PDF sem dados sensíveis.
+    /// </summary>
+    void LogAnalysisSummary(PdfInfo info);
 }

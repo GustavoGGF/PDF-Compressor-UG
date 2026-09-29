@@ -66,6 +66,27 @@ public sealed class DiagnosticLogger : IDiagnosticLogger
         WriteEntry("INFO", message);
     }
 
+    /// <inheritdoc />
+    public void LogAnalysisSummary(PdfInfo info)
+    {
+        string safeFileName = string.IsNullOrWhiteSpace(info.FilePath) ? "unknown" : Path.GetFileName(info.FilePath);
+        string message = string.Format(
+            CultureInfo.InvariantCulture,
+            "AnalysisSummary: File={0}, Valid={1}, Status={2}, SizeBytes={3} ({4:F2} MB), Pages={5}, HasSignature={6}, Encrypted={7}, Error={8}, Warning={9}",
+            safeFileName,
+            info.IsValid,
+            info.Status,
+            info.FileSizeBytes,
+            info.FileSizeMb,
+            info.PageCount?.ToString(CultureInfo.InvariantCulture) ?? "Unknown",
+            info.HasLikelySignature,
+            info.IsEncrypted,
+            info.ErrorMessage ?? "None",
+            info.WarningMessage ?? "None"
+        );
+        WriteEntry("INFO", message);
+    }
+
     private void WriteEntry(string level, string message)
     {
         string timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
