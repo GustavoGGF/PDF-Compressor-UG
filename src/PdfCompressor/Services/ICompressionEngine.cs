@@ -12,7 +12,7 @@ public interface ICompressionEngine
     /// </summary>
     Task<CompressionResult> CompressAsync(
         CompressionOptions options,
-        IProgress<CompressionProgressUpdate>? progress,
-        CancellationToken cancellationToken
+        IProgress<CompressionProgressUpdate>? progress = null,
+        CancellationToken cancellationToken = default
     );
 }

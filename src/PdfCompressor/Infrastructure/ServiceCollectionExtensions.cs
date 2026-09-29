@@ -20,6 +20,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IGhostscriptLocator, GhostscriptLocator>();
         services.AddSingleton<IGhostscriptProcessStarter, DefaultGhostscriptProcessStarter>();
         services.AddSingleton<IGhostscriptProcessRunner, GhostscriptProcessRunner>();
+        services.AddSingleton<ICompressionEngine, CompressionEngine>();
         return services;
     }
 }
