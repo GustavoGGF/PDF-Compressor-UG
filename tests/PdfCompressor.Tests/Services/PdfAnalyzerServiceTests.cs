@@ -164,6 +164,39 @@ public sealed class PdfAnalyzerServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task AnalyzeAsync_ValidPdfWithTrailingNullPadding_ReturnsSuccess()
+    {
+        byte[] validPdf = PdfTestFixtures.CreateOnePagePdf();
+        byte[] paddedPdf = new byte[validPdf.Length + 10000];
+        Buffer.BlockCopy(validPdf, 0, paddedPdf, 0, validPdf.Length);
+        // trailing 10000 bytes are zeroes (0x00)
+
+        string path = WriteTempPdf("padded.pdf", paddedPdf);
+
+        var result = await _analyzer.AnalyzeAsync(path);
+
+        Assert.True(result.IsValid);
+        Assert.Equal(PdfAnalysisStatus.Success, result.Status);
+        Assert.Equal(1, result.PageCount);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_RealImagensPdf_ReturnsSuccess()
+    {
+        string realPdfPath = Path.Combine(AppContext.BaseDirectory, "../../../../imagens.pdf");
+        if (!File.Exists(realPdfPath))
+        {
+            return; // Executado apenas quando o arquivo estiver no repositório
+        }
+
+        var result = await _analyzer.AnalyzeAsync(realPdfPath);
+
+        Assert.True(result.IsValid, result.ErrorMessage);
+        Assert.Equal(PdfAnalysisStatus.Success, result.Status);
+        Assert.NotNull(result.PageCount);
+    }
+
+    [Fact]
     public async Task AnalyzeAsync_SignatureMarkedPdf_ReturnsWarningWithSignatureAlert()
     {
         // TC-06, DEC-07: Detecção de marcadores /ByteRange e /Sig
@@ -330,6 +363,12 @@ public sealed class PdfAnalyzerServiceTests : IDisposable
         Assert.Equal(3, res01.PageCount);
         Assert.Equal(PdfAnalysisStatus.Success, res01.Status);
 
+        // fix-02 (imagens não comprimidas, 1 página)
+        var res02 = await _analyzer.AnalyzeAsync(Path.Combine(sampleDir, "fix-02-highres-images.pdf"));
+        Assert.True(res02.IsValid);
+        Assert.Equal(1, res02.PageCount);
+        Assert.Equal(PdfAnalysisStatus.Success, res02.Status);
+
         // fix-03 (pequeno, 1 página)
         var res03 = await _analyzer.AnalyzeAsync(Path.Combine(sampleDir, "fix-03-already-small.pdf"));
         Assert.True(res03.IsValid);
@@ -351,5 +390,11 @@ public sealed class PdfAnalyzerServiceTests : IDisposable
         var res06 = await _analyzer.AnalyzeAsync(Path.Combine(sampleDir, "fix-06-corrupt-header.pdf"));
         Assert.False(res06.IsValid);
         Assert.Equal(PdfAnalysisStatus.Failed, res06.Status);
+
+        // fix-08 (vetorial denso de 5 páginas)
+        var res08 = await _analyzer.AnalyzeAsync(Path.Combine(sampleDir, "fix-08-unreachable-target.pdf"));
+        Assert.True(res08.IsValid);
+        Assert.Equal(5, res08.PageCount);
+        Assert.Equal(PdfAnalysisStatus.Success, res08.Status);
     }
 }

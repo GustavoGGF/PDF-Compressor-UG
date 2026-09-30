@@ -185,4 +185,70 @@ startxref
 """;
         return Encoding.Latin1.GetBytes(pdf.Replace("\r\n", "\n"));
     }
+
+    /// <summary>
+    /// Gera um PDF sintético contendo imagem bitmap não comprimida para teste de downsampling do Ghostscript.
+    /// </summary>
+    public static byte[] CreateImagePdf(int width = 200, int height = 200)
+    {
+        int pixelDataLength = width * height * 3;
+        byte[] rgbData = new byte[pixelDataLength];
+        for (int i = 0; i < pixelDataLength; i++)
+        {
+            rgbData[i] = (byte)((i * 17 + 43) % 256);
+        }
+
+        string header = $"""
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /XObject << /Im1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length {pixelDataLength} >>
+stream
+
+""";
+        string footer = """
+
+endstream
+endobj
+5 0 obj
+<< /Length 40 >>
+stream
+q 200 0 0 200 100 300 cm /Im1 Do Q
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+450
+%%EOF
+""";
+        byte[] headerBytes = Encoding.Latin1.GetBytes(header.Replace("\r\n", "\n"));
+        byte[] footerBytes = Encoding.Latin1.GetBytes(footer.Replace("\r\n", "\n"));
+
+        byte[] result = new byte[headerBytes.Length + rgbData.Length + footerBytes.Length];
+        Buffer.BlockCopy(headerBytes, 0, result, 0, headerBytes.Length);
+        Buffer.BlockCopy(rgbData, 0, result, headerBytes.Length, rgbData.Length);
+        Buffer.BlockCopy(footerBytes, 0, result, headerBytes.Length + rgbData.Length, footerBytes.Length);
+
+        return result;
+    }
+
+    /// <summary>
+    /// Gera um PDF denso com múltiplas páginas e vetores para teste de alvos inalcançáveis (BestEffortAboveTarget).
+    /// </summary>
+    public static byte[] CreateDenseVectorPdf(int pages = 5)
+    {
+        return CreateMultiPagePdf(pages);
+    }
 }

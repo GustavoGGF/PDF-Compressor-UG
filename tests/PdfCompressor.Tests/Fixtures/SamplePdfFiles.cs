@@ -18,6 +18,12 @@ public static class SamplePdfFiles
             File.WriteAllBytes(fix01, PdfTestFixtures.CreateMultiPagePdf(3));
         }
 
+        string fix02 = Path.Combine(directoryPath, "fix-02-highres-images.pdf");
+        if (!File.Exists(fix02))
+        {
+            File.WriteAllBytes(fix02, PdfTestFixtures.CreateImagePdf(300, 300));
+        }
+
         string fix03 = Path.Combine(directoryPath, "fix-03-already-small.pdf");
         if (!File.Exists(fix03))
         {
@@ -40,6 +46,12 @@ public static class SamplePdfFiles
         if (!File.Exists(fix06))
         {
             File.WriteAllBytes(fix06, PdfTestFixtures.CreateCorruptHeaderFile());
+        }
+
+        string fix08 = Path.Combine(directoryPath, "fix-08-unreachable-target.pdf");
+        if (!File.Exists(fix08))
+        {
+            File.WriteAllBytes(fix08, PdfTestFixtures.CreateDenseVectorPdf(5));
         }
     }
 }

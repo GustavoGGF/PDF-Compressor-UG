@@ -22,7 +22,7 @@ internal sealed record PdfInspectionResult(
 internal static partial class PdfContentInspector
 {
     private const int HeaderBufferSize = 1024;
-    private const int TrailerBufferSize = 4096;
+    private const int TrailerBufferSize = 64 * 1024; // 64 KB para acomodar metadados e streams no trailer
     private const int ChunkBufferSize = 64 * 1024; // 64 KB
     private const int OverlapSize = 1024; // 1 KB para evitar corte de tokens
 
@@ -102,15 +102,10 @@ internal static partial class PdfContentInspector
             );
         }
 
-        // 2. Validação do Rodapé (%%EOF nos últimos 4096 bytes)
-        int trailerBytesToRead = (int)Math.Min(length, TrailerBufferSize);
-        long trailerOffset = length - trailerBytesToRead;
-        stream.Seek(trailerOffset, SeekOrigin.Begin);
-        byte[] trailerBuffer = new byte[trailerBytesToRead];
-        await stream.ReadExactlyAsync(trailerBuffer, 0, trailerBytesToRead, cancellationToken);
-        string trailerText = Encoding.ASCII.GetString(trailerBuffer);
+        // 2. Validação do Rodapé (procura %%EOF considerando possíveis bytes nulos ou padding pós-EOF)
+        string? trailerText = await FindTrailerTextAsync(stream, length, cancellationToken).ConfigureAwait(false);
 
-        if (!EofRegex().IsMatch(trailerText))
+        if (trailerText is null || !EofRegex().IsMatch(trailerText))
         {
             return new PdfInspectionResult(
                 HasValidHeader: true,
@@ -211,5 +206,88 @@ internal static partial class PdfContentInspector
                 currentMax = currentMax.HasValue ? Math.Max(currentMax.Value, count) : count;
             }
         }
+    }
+
+    private static async Task<string?> FindTrailerTextAsync(Stream stream, long fileLength, CancellationToken cancellationToken)
+    {
+        // 1. Tenta ler uma janela inicial do final (64 KB)
+        int initialWindow = (int)Math.Min(fileLength, TrailerBufferSize);
+        stream.Seek(fileLength - initialWindow, SeekOrigin.Begin);
+        byte[] buffer = new byte[initialWindow];
+        await stream.ReadExactlyAsync(buffer, 0, initialWindow, cancellationToken).ConfigureAwait(false);
+
+        // 2. Se encontrar %%EOF no final, retorna o texto do trailer
+        string trailerText = Encoding.Latin1.GetString(buffer);
+        if (EofRegex().IsMatch(trailerText))
+        {
+            return trailerText;
+        }
+
+        // 3. Verifica se o final do arquivo é composto apenas por bytes nulos ou espaços em branco (padding)
+        // Percorremos de trás para frente até encontrar o último byte não-nulo e não-espaço.
+        int nonPaddingEndIndex = -1;
+        for (int i = buffer.Length - 1; i >= 0; i--)
+        {
+            byte b = buffer[i];
+            if (b != 0 && b != (byte)' ' && b != (byte)'\r' && b != (byte)'\n' && b != (byte)'\t')
+            {
+                nonPaddingEndIndex = i;
+                break;
+            }
+        }
+
+        long actualContentEnd;
+        if (nonPaddingEndIndex >= 0)
+        {
+            actualContentEnd = (fileLength - initialWindow) + nonPaddingEndIndex + 1;
+        }
+        else
+        {
+            // Toda a janela inicial de 64 KB é composta de zeros/espaços (ex: arquivos com preenchimento em blocos).
+            // Varre de trás para frente em blocos de 64 KB até achar bytes válidos de conteúdo.
+            actualContentEnd = fileLength - initialWindow;
+            byte[] scanBuffer = new byte[ChunkBufferSize];
+
+            while (actualContentEnd > 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int toRead = (int)Math.Min(actualContentEnd, ChunkBufferSize);
+                long offset = actualContentEnd - toRead;
+                stream.Seek(offset, SeekOrigin.Begin);
+                await stream.ReadExactlyAsync(scanBuffer, 0, toRead, cancellationToken).ConfigureAwait(false);
+
+                int foundIndex = -1;
+                for (int i = toRead - 1; i >= 0; i--)
+                {
+                    byte b = scanBuffer[i];
+                    if (b != 0 && b != (byte)' ' && b != (byte)'\r' && b != (byte)'\n' && b != (byte)'\t')
+                    {
+                        foundIndex = i;
+                        break;
+                    }
+                }
+
+                if (foundIndex >= 0)
+                {
+                    actualContentEnd = offset + foundIndex + 1;
+                    break;
+                }
+
+                actualContentEnd = offset;
+            }
+        }
+
+        if (actualContentEnd <= 0)
+        {
+            return null;
+        }
+
+        // Lê a janela do trailer posicionada logo antes do final do conteúdo real
+        int actualTrailerBytes = (int)Math.Min(actualContentEnd, TrailerBufferSize);
+        stream.Seek(actualContentEnd - actualTrailerBytes, SeekOrigin.Begin);
+        byte[] finalTrailerBuffer = new byte[actualTrailerBytes];
+        await stream.ReadExactlyAsync(finalTrailerBuffer, 0, actualTrailerBytes, cancellationToken).ConfigureAwait(false);
+
+        return Encoding.Latin1.GetString(finalTrailerBuffer);
     }
 }
