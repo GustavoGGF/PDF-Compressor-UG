@@ -53,3 +53,9 @@ ehthumbs.db
 
 # Documentação do plano
 docs/
+
+# Dependências externas e instaladores de terceiros
+dependencies/*
+!dependencies/README.md
+*.exe
+*.msi
