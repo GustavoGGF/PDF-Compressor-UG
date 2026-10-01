@@ -26,14 +26,19 @@ internal sealed class FakeCompressionEngineService : ICompressionEngine
 {
     public CompressionResult? ConfiguredResult { get; set; }
     public CompressionOptions? LastOptions { get; private set; }
+    /// <summary>Gets the number of compression calls received by the double.</summary>
+    public int InvocationCount { get; private set; }
     public TimeSpan Delay { get; set; }
     public bool ReportSteps { get; set; }
+    /// <summary>Gets or sets the exception raised by the next compression call.</summary>
+    public Exception? ConfiguredException { get; set; }
 
     public async Task<CompressionResult> CompressAsync(
         CompressionOptions options,
         IProgress<CompressionProgressUpdate>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        InvocationCount++;
         LastOptions = options;
 
         if (ReportSteps && progress != null)
@@ -48,6 +53,11 @@ internal sealed class FakeCompressionEngineService : ICompressionEngine
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+
+        if (ConfiguredException != null)
+        {
+            throw ConfiguredException;
+        }
 
         return ConfiguredResult ?? new CompressionResult(
             Status: CompressionStatus.TargetMet,

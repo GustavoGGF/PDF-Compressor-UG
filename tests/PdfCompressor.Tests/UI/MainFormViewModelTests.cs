@@ -266,6 +266,124 @@ public sealed class MainFormViewModelTests
     }
 
     [Fact]
+    public async Task CompressAsync_WhenStartingNewCompression_ClearsPreviousResultImmediately()
+    {
+        using var vm = CreateViewModel();
+        string tempFile = Path.Combine(Path.GetTempPath(), $"teste_recompress_{Guid.NewGuid():N}.pdf");
+
+        try
+        {
+            await File.WriteAllTextAsync(tempFile, "%PDF-1.4 recompress test");
+            await vm.SelectAndAnalyzeFileAsync(tempFile);
+
+            _engine.ConfiguredResult = new CompressionResult(
+                CompressionStatus.TargetMet, tempFile, Path.Combine(Path.GetTempPath(), "primeiro.pdf"),
+                10_000_000, 2_000_000, 150, [], TimeSpan.FromSeconds(1));
+            await vm.CompressAsync();
+            Assert.NotNull(vm.LastResult);
+
+            _engine.ConfiguredResult = new CompressionResult(
+                CompressionStatus.TargetMet, tempFile, Path.Combine(Path.GetTempPath(), "segundo.pdf"),
+                10_000_000, 1_500_000, 120, [], TimeSpan.FromSeconds(1));
+            _engine.Delay = TimeSpan.FromMilliseconds(250);
+            var compressingSnapshot = new List<(UiState State, CompressionResult? Result, string FinalSize, string Reduction, string Dpi, string Output, bool CanOpenPdf, bool CanOpenFolder)>();
+            vm.StateChanged += (_, state) =>
+            {
+                if (state == UiState.Compressing)
+                {
+                    compressingSnapshot.Add((state, vm.LastResult, vm.FinalFileSizeText, vm.ReductionPercentageText,
+                        vm.FinalDpiText, vm.OutputFilePathText, vm.CanOpenPdf, vm.CanOpenFolder));
+                }
+            };
+
+            Task secondCompression = vm.CompressAsync();
+
+            Assert.Equal(UiState.Compressing, vm.State);
+            Assert.Null(vm.LastResult);
+            Assert.Equal("-", vm.FinalFileSizeText);
+            Assert.Equal("-", vm.ReductionPercentageText);
+            Assert.Equal("-", vm.FinalDpiText);
+            Assert.Equal("-", vm.OutputFilePathText);
+            Assert.False(vm.CanOpenPdf);
+            Assert.False(vm.CanOpenFolder);
+            Assert.Single(compressingSnapshot);
+            Assert.Null(compressingSnapshot[0].Result);
+            Assert.Equal("-", compressingSnapshot[0].FinalSize);
+
+            await secondCompression;
+
+            Assert.Equal(UiState.Success, vm.State);
+            Assert.Equal("1,50 MB", vm.FinalFileSizeText);
+            Assert.Equal("120 DPI", vm.FinalDpiText);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task CompressAsync_WhenValidationPreventsStart_PreservesPreviousResult()
+    {
+        using var vm = CreateViewModel();
+        string tempFile = Path.Combine(Path.GetTempPath(), $"teste_recompress_invalid_{Guid.NewGuid():N}.pdf");
+
+        try
+        {
+            await File.WriteAllTextAsync(tempFile, "%PDF-1.4 invalid recompress test");
+            await vm.SelectAndAnalyzeFileAsync(tempFile);
+
+            await vm.CompressAsync();
+            Assert.NotNull(vm.LastResult);
+            CompressionResult previousResult = vm.LastResult!;
+            int compressionCount = _engine.InvocationCount;
+
+            vm.UpdateTargetSize("0", TargetSizeUnit.MB);
+            await vm.CompressAsync();
+
+            Assert.Equal(compressionCount, _engine.InvocationCount);
+            Assert.Same(previousResult, vm.LastResult);
+            Assert.Equal(UiState.Success, vm.State);
+            Assert.Equal(previousResult.OutputFilePath, vm.OutputFilePathText);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task CompressAsync_WhenNewCompressionFails_DoesNotRestorePreviousResult()
+    {
+        using var vm = CreateViewModel();
+        string tempFile = Path.Combine(Path.GetTempPath(), $"teste_recompress_failure_{Guid.NewGuid():N}.pdf");
+
+        try
+        {
+            await File.WriteAllTextAsync(tempFile, "%PDF-1.4 failed recompress test");
+            await vm.SelectAndAnalyzeFileAsync(tempFile);
+            await vm.CompressAsync();
+            Assert.NotNull(vm.LastResult);
+
+            _engine.ConfiguredException = new InvalidOperationException("falha de teste");
+            await vm.CompressAsync();
+
+            Assert.Equal(UiState.Error, vm.State);
+            Assert.Null(vm.LastResult);
+            Assert.Equal("-", vm.FinalFileSizeText);
+            Assert.Equal("-", vm.ReductionPercentageText);
+            Assert.Equal("-", vm.FinalDpiText);
+            Assert.Equal("-", vm.OutputFilePathText);
+            Assert.False(vm.CanOpenPdf);
+            Assert.False(vm.CanOpenFolder);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
     public async Task CompressAsync_WhenBestEffortAboveTarget_TransitionsToBestEffort()
     {
         using var vm = CreateViewModel();

@@ -291,9 +291,11 @@ public sealed class MainFormViewModel : IDisposable
         _compressionCts = new CancellationTokenSource();
         var ct = _compressionCts.Token;
 
-        TransitionTo(UiState.Compressing, "Iniciando processo de compressão...");
+        LastResult = null;
+        ErrorMessage = null;
         ProgressPercentage = 0;
         ProgressText = "Preparando...";
+        TransitionTo(UiState.Compressing, "Iniciando processo de compressão...");
 
         var progress = new Progress<CompressionProgressUpdate>(update =>
         {
