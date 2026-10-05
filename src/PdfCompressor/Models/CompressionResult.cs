@@ -28,7 +28,7 @@ public sealed record CompressionResult(
     /// <summary>
     /// Taxa percentual de redução calculada. Retorna 0.0 se não houve redução ou se o tamanho original for zero.
     /// </summary>
-    public double ReductionPercentage => OriginalSizeBytes > 0
+    public double ReductionPercentage => !string.IsNullOrEmpty(OutputFilePath) && OriginalSizeBytes > 0
         ? Math.Max(0.0, ((OriginalSizeBytes - FinalSizeBytes) / (double)OriginalSizeBytes) * 100.0)
         : 0.0;
 }

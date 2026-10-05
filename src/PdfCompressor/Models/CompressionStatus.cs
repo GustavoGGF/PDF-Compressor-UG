@@ -16,6 +16,12 @@ public enum CompressionStatus
     BestEffortAboveTarget,
 
     /// <summary>
+    /// Nenhuma tentativa produziu um arquivo estritamente menor que o original.
+    /// Nenhum arquivo novo foi gerado.
+    /// </summary>
+    NoReduction,
+
+    /// <summary>
     /// Operação cancelada explicitamente pelo usuário.
     /// </summary>
     Cancelled,

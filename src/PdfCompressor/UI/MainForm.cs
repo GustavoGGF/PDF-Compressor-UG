@@ -197,6 +197,7 @@ public partial class MainForm : Form, IUiDispatcher
         {
             UiState.Success => Color.DarkGreen,
             UiState.BestEffort => Color.DarkGoldenrod,
+            UiState.NoReduction => Color.DarkGoldenrod,
             UiState.Cancelled => Color.DimGray,
             UiState.Error => Color.Firebrick,
             _ => SystemColors.ControlText

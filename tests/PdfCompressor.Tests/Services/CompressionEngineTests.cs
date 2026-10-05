@@ -127,7 +127,7 @@ public sealed class CompressionEngineTests : IDisposable
         _locator.Available = false;
         _locator.ExecutablePath = null;
 
-        var options = new CompressionOptions(input, _testRoot, CompressionPreset.Automatic, TargetSizeBytes: 5_000_000);
+        var options = new CompressionOptions(input, _testRoot, CompressionPreset.Automatic, TargetSizeBytes: 5_000);
         var result = await _sut.CompressAsync(options);
 
         Assert.Equal(CompressionStatus.ToolUnavailable, result.Status);
@@ -138,6 +138,8 @@ public sealed class CompressionEngineTests : IDisposable
     public async Task CompressAsync_WhenOutputCollidesWithInput_ReturnsInvalidInput()
     {
         string input = CreateFakePdfFile("sample.pdf");
+        _analyzer.ConfiguredInfo = PdfInfo.Success(input, 10_000, 1);
+        _runner.SimulateDpi(300, 5_000);
         _fileManager.CustomGenerateOutputFilePath = (source, _) => source;
 
         var options = new CompressionOptions(input, _testRoot, CompressionPreset.HighQuality);
@@ -145,7 +147,7 @@ public sealed class CompressionEngineTests : IDisposable
 
         Assert.Equal(CompressionStatus.InvalidInput, result.Status);
         Assert.Contains("imutabilidade", result.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Empty(_runner.ExecutionCalls);
+        Assert.Single(_runner.ExecutionCalls);
     }
 
     [Fact]
@@ -213,24 +215,76 @@ public sealed class CompressionEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task CompressAsync_Automatic_OriginalFileAlreadyBelowTarget_ExecutesAndMeetsTarget()
+    public async Task CompressAsync_Automatic_OriginalFileAlreadyBelowTarget_ReturnsTargetMetWithoutCreatingOutput()
     {
         string input = CreateFakePdfFile("small.pdf", sizeBytes: 2_000_000);
+        byte[] originalBytes = File.ReadAllBytes(input);
         _analyzer.ConfiguredInfo = PdfInfo.Success(input, 2_000_000, 2);
-
-        _runner.SimulateDpi(300, 1_500_000);
 
         var options = new CompressionOptions(input, _testRoot, CompressionPreset.Automatic, TargetSizeBytes: 5_000_000);
         var result = await _sut.CompressAsync(options);
 
         Assert.Equal(CompressionStatus.TargetMet, result.Status);
-        Assert.Equal(1_500_000, result.FinalSizeBytes);
+        Assert.Equal(0, result.FinalSizeBytes);
+        Assert.Null(result.FinalDpi);
+        Assert.Empty(result.Attempts);
+        Assert.Empty(_runner.ExecutionCalls);
+        Assert.Contains("já atende", result.Message, StringComparison.OrdinalIgnoreCase);
         Assert.True(File.Exists(input));
         Assert.Equal(2_000_000, new FileInfo(input).Length);
+        Assert.Null(result.OutputFilePath);
+        Assert.DoesNotContain(Directory.EnumerateFiles(_testRoot), path => path.EndsWith("_compactado.pdf", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(originalBytes, File.ReadAllBytes(input));
     }
 
     [Fact]
-    public async Task CompressAsync_Automatic_WhenNoAttemptMeetsTarget_ReturnsBestEffortAboveTarget()
+    public async Task CompressAsync_Automatic_DoesNotCreateOutputWhenCandidatesAreLargerThanOriginal()
+    {
+        string input = CreateFakePdfFile("text.pdf", sizeBytes: 900_000);
+        byte[] originalBytes = File.ReadAllBytes(input);
+        _analyzer.ConfiguredInfo = PdfInfo.Success(input, 900_000, 10);
+        _runner.SimulateDpi(300, 1_800_000);
+
+        var options = new CompressionOptions(input, _testRoot, CompressionPreset.Automatic, TargetSizeBytes: 800_000);
+        var result = await _sut.CompressAsync(options);
+
+        Assert.Equal(CompressionStatus.NoReduction, result.Status);
+        Assert.Equal(0, result.FinalSizeBytes);
+        Assert.Null(result.FinalDpi);
+        Assert.Equal(6, result.Attempts.Count);
+        Assert.Null(result.OutputFilePath);
+        Assert.DoesNotContain(Directory.EnumerateFiles(_testRoot), path => path.EndsWith("_compactado.pdf", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(originalBytes, File.ReadAllBytes(input));
+    }
+
+    [Fact]
+    public async Task CompressAsync_Automatic_WhenTargetMissedAndCandidatesAreLarger_ReturnsNoReduction()
+    {
+        string input = CreateFakePdfFile("already-smallest.pdf", sizeBytes: 3_000_000);
+        byte[] originalBytes = File.ReadAllBytes(input);
+        _analyzer.ConfiguredInfo = PdfInfo.Success(input, 3_000_000, 10);
+        _runner.SimulateDpi(300, 3_500_000);
+        _runner.SimulateDpi(250, 3_200_000);
+        _runner.SimulateDpi(200, 3_100_000);
+        _runner.SimulateDpi(150, 3_050_000);
+        _runner.SimulateDpi(100, 3_025_000);
+        _runner.SimulateDpi(72, 3_010_000);
+
+        var options = new CompressionOptions(input, _testRoot, CompressionPreset.Automatic, TargetSizeBytes: 1_000_000);
+        var result = await _sut.CompressAsync(options);
+
+        Assert.Equal(CompressionStatus.NoReduction, result.Status);
+        Assert.Equal(0, result.FinalSizeBytes);
+        Assert.Null(result.FinalDpi);
+        Assert.Equal(6, result.Attempts.Count);
+        Assert.Contains("Nenhuma tentativa reduziu", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(result.OutputFilePath);
+        Assert.DoesNotContain(Directory.EnumerateFiles(_testRoot), path => path.EndsWith("_compactado.pdf", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(originalBytes, File.ReadAllBytes(input));
+    }
+
+    [Fact]
+    public async Task CompressAsync_Automatic_WhenNoAttemptMeetsTarget_DoesNotCreateOutput()
     {
         string input = CreateFakePdfFile("dense.pdf", sizeBytes: 10_000_000);
         _analyzer.ConfiguredInfo = PdfInfo.Success(input, 10_000_000, 8);
@@ -245,14 +299,14 @@ public sealed class CompressionEngineTests : IDisposable
         var options = new CompressionOptions(input, _testRoot, CompressionPreset.Automatic, TargetSizeBytes: 1_000_000);
         var result = await _sut.CompressAsync(options);
 
-        Assert.Equal(CompressionStatus.BestEffortAboveTarget, result.Status);
-        Assert.Equal(72, result.FinalDpi);
-        Assert.Equal(2_400_000, result.FinalSizeBytes);
-        Assert.NotNull(result.OutputFilePath);
-        Assert.True(File.Exists(result.OutputFilePath));
+        Assert.Equal(CompressionStatus.NoReduction, result.Status);
+        Assert.Null(result.FinalDpi);
+        Assert.Equal(0, result.FinalSizeBytes);
+        Assert.Null(result.OutputFilePath);
+        Assert.DoesNotContain(Directory.EnumerateFiles(_testRoot), path => path.EndsWith("_compactado.pdf", StringComparison.OrdinalIgnoreCase));
         Assert.Equal(6, _runner.ExecutionCalls.Count);
         Assert.Equal(6, result.Attempts.Count);
-        Assert.Contains("Nenhuma tentativa atingiu o limite", result.Message);
+        Assert.Contains("Nenhuma tentativa atingiu o tamanho-alvo", result.Message);
     }
 
     [Fact]

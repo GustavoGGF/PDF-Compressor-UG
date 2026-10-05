@@ -134,13 +134,16 @@ public sealed class MainFormViewModel : IDisposable
     {
         UiState.Success => "✔ Compressão concluída com sucesso! (Alvo atingido)",
         UiState.BestEffort => "⚠ Compressão por melhor esforço (Alvo não alcançado)",
+        UiState.NoReduction => "⚠ Nenhuma redução obtida",
         UiState.Cancelled => "✖ Operação cancelada pelo usuário.",
         UiState.Error => "✖ Falha no processamento.",
         _ => "Nenhuma operação realizada ainda."
     };
 
     /// <summary>Tamanho final obtido formatado para exibição.</summary>
-    public string FinalFileSizeText => LastResult != null ? TargetSizeUnitExtensions.FormatBytes(LastResult.FinalSizeBytes, _culture) : "-";
+    public string FinalFileSizeText => LastResult?.OutputFilePath != null
+        ? TargetSizeUnitExtensions.FormatBytes(LastResult.FinalSizeBytes, _culture)
+        : "-";
 
     /// <summary>Percentual de redução obtido formatado para exibição.</summary>
     public string ReductionPercentageText => LastResult != null ? $"{LastResult.ReductionPercentage.ToString("0.0", _culture)}%" : "-";
@@ -152,7 +155,7 @@ public sealed class MainFormViewModel : IDisposable
     public string OutputFilePathText => LastResult?.OutputFilePath ?? "-";
 
     /// <summary>Indica se as opções de configuração estão editáveis no estado corrente.</summary>
-    public bool CanConfigureSettings => State is UiState.Ready or UiState.Success or UiState.BestEffort or UiState.Cancelled or UiState.Error;
+    public bool CanConfigureSettings => State is UiState.Ready or UiState.Success or UiState.BestEffort or UiState.NoReduction or UiState.Cancelled or UiState.Error;
 
     /// <summary>Indica se a ação de seleção de arquivo está disponível.</summary>
     public bool CanSelectFile => State is not (UiState.Analyzing or UiState.Compressing or UiState.Cancelling);
@@ -389,6 +392,11 @@ public sealed class MainFormViewModel : IDisposable
                 ProgressPercentage = 100;
                 ProgressText = "Concluído (melhor esforço).";
                 TransitionTo(UiState.BestEffort, result.Message ?? "Nenhuma tentativa atingiu o alvo solicitado. O melhor resultado obtido foi preservado.");
+                break;
+            case CompressionStatus.NoReduction:
+                ProgressPercentage = 100;
+                ProgressText = "Nenhum arquivo novo foi gerado.";
+                TransitionTo(UiState.NoReduction, result.Message ?? "Nenhuma tentativa reduziu o arquivo original. Nenhum arquivo novo foi gerado.");
                 break;
             case CompressionStatus.Cancelled:
                 TransitionTo(UiState.Cancelled, "Operação de compressão cancelada.");

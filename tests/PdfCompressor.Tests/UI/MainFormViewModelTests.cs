@@ -422,6 +422,45 @@ public sealed class MainFormViewModelTests
     }
 
     [Fact]
+    public async Task CompressAsync_WhenNoReduction_UsesWarningStateAndDisablesOpenActions()
+    {
+        using var vm = CreateViewModel();
+        string tempFile = Path.Combine(Path.GetTempPath(), $"teste_noreduction_{Guid.NewGuid():N}.pdf");
+
+        try
+        {
+            await File.WriteAllTextAsync(tempFile, "%PDF-1.4 no reduction test");
+            await vm.SelectAndAnalyzeFileAsync(tempFile);
+            _engine.ConfiguredResult = new CompressionResult(
+                Status: CompressionStatus.NoReduction,
+                SourceFilePath: tempFile,
+                OutputFilePath: null,
+                OriginalSizeBytes: 1_000_000,
+                FinalSizeBytes: 0,
+                FinalDpi: null,
+                Attempts: [],
+                TotalDuration: TimeSpan.Zero,
+                Message: "Nenhuma tentativa reduziu o arquivo original. Nenhum arquivo novo foi gerado.");
+
+            await vm.CompressAsync();
+
+            Assert.Equal(UiState.NoReduction, vm.State);
+            Assert.Equal("Nenhuma tentativa reduziu o arquivo original. Nenhum arquivo novo foi gerado.", vm.StatusMessage);
+            Assert.Equal("-", vm.FinalFileSizeText);
+            Assert.Equal("-", vm.OutputFilePathText);
+            Assert.Equal("0,0%", vm.ReductionPercentageText);
+            Assert.Equal("-", vm.FinalDpiText);
+            Assert.False(vm.CanOpenPdf);
+            Assert.False(vm.CanOpenFolder);
+            Assert.Contains("nenhuma redução", vm.ResultTitleText, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
     public async Task CompressAsync_WhenToolUnavailable_TransitionsToErrorWithClearMessage()
     {
         using var vm = CreateViewModel();

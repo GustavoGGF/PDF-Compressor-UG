@@ -59,6 +59,23 @@ public sealed class CompressionResultTests
     }
 
     [Fact]
+    public void ReductionPercentage_WhenNoOutputFile_ReturnsZero()
+    {
+        var result = new CompressionResult(
+            Status: CompressionStatus.NoReduction,
+            SourceFilePath: "unchanged.pdf",
+            OutputFilePath: null,
+            OriginalSizeBytes: 1_000_000,
+            FinalSizeBytes: 0,
+            FinalDpi: null,
+            Attempts: [],
+            TotalDuration: TimeSpan.Zero
+        );
+
+        Assert.Equal(0.0, result.ReductionPercentage);
+    }
+
+    [Fact]
     public void AttemptResult_OutputSizeMb_CalculatesUsingDecimalMb()
     {
         var attempt = new AttemptResult(

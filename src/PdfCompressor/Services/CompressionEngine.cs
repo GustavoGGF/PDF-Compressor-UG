@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using PdfCompressor.Models;
 
 namespace PdfCompressor.Services;
@@ -112,7 +113,41 @@ public sealed class CompressionEngine : ICompressionEngine
             _logger.LogWarning($"Assinatura detectada no arquivo '{options.SourceFilePath}'. O processo de compressão poderá invalidá-la.");
         }
 
-        // Validação da disponibilidade do Ghostscript
+        // Não reprocessa um arquivo que já atende ao alvo: a reconstrução por Ghostscript
+        // pode aumentar PDFs predominantemente textuais, mesmo quando o alvo é respeitado.
+        if (options.TargetSizeBytes.HasValue && pdfInfo.FileSizeBytes <= options.TargetSizeBytes.Value)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return CreateCancelledResult(options.SourceFilePath, pdfInfo.FileSizeBytes, [], totalStopwatch.Elapsed);
+            }
+
+            totalStopwatch.Stop();
+            var unchangedResult = new CompressionResult(
+                Status: CompressionStatus.TargetMet,
+                SourceFilePath: options.SourceFilePath,
+                OutputFilePath: null,
+                OriginalSizeBytes: pdfInfo.FileSizeBytes,
+                FinalSizeBytes: 0,
+                FinalDpi: null,
+                Attempts: [],
+                TotalDuration: totalStopwatch.Elapsed,
+                Message: "O arquivo original já atende ao tamanho-alvo. Nenhum reprocessamento foi necessário."
+            );
+
+            progress?.Report(new CompressionProgressUpdate(
+                CurrentAttempt: 0,
+                TotalAttempts: 0,
+                DpiTested: 0,
+                StepDescription: "O arquivo original já atende ao tamanho-alvo.",
+                PercentageEstimate: 100
+            ));
+
+            _logger.LogCompressionSummary(unchangedResult);
+            return unchangedResult;
+        }
+
+        // A partir daqui o motor só é necessário quando há uma possibilidade real de redução.
         string? gsPath = _locator.FindExecutablePath();
         if (string.IsNullOrWhiteSpace(gsPath) || !_locator.IsAvailable())
         {
@@ -123,24 +158,6 @@ public sealed class CompressionEngine : ICompressionEngine
                 originalSize: pdfInfo.FileSizeBytes,
                 duration: totalStopwatch.Elapsed,
                 message: "O executável do Ghostscript não foi localizado no sistema."
-            );
-        }
-
-        // Resolução do arquivo de saída final com garantia de não colisão com a entrada
-        string finalOutputPath = options.OverwriteTarget
-            ? Path.Combine(options.TargetDirectory, $"{Path.GetFileNameWithoutExtension(options.SourceFilePath)}_compactado{(Path.GetExtension(options.SourceFilePath) is { Length: > 0 } ext ? ext : ".pdf")}")
-            : _fileManager.GenerateSafeOutputFilePath(options.SourceFilePath, options.TargetDirectory);
-
-        string fullSource = Path.GetFullPath(options.SourceFilePath);
-        string fullOutput = Path.GetFullPath(finalOutputPath);
-        if (string.Equals(fullSource, fullOutput, StringComparison.OrdinalIgnoreCase))
-        {
-            return CreateErrorResult(
-                CompressionStatus.InvalidInput,
-                sourcePath: options.SourceFilePath,
-                originalSize: pdfInfo.FileSizeBytes,
-                duration: totalStopwatch.Elapsed,
-                message: "O caminho de saída não pode ser idêntico ao arquivo de entrada para garantir sua imutabilidade. Escolha outro nome ou pasta de destino para preservar o original."
             );
         }
 
@@ -259,7 +276,10 @@ public sealed class CompressionEngine : ICompressionEngine
                 );
                 attempts.Add(successfulAttempt);
 
-                bool isEligible = CompressionPresetPolicy.IsEligible(candidateSize, options.TargetSizeBytes);
+                bool reducesOriginal = candidateSize < pdfInfo.FileSizeBytes;
+                string targetDescription = options.TargetSizeBytes?.ToString(CultureInfo.InvariantCulture) ?? "None";
+                _logger.LogInfo($"CompressionAttempt: Dpi={dpi}, OutputBytes={candidateSize}, OriginalBytes={pdfInfo.FileSizeBytes}, ReducesOriginal={reducesOriginal}, TargetBytes={targetDescription}");
+                bool isEligible = reducesOriginal && CompressionPresetPolicy.IsEligible(candidateSize, options.TargetSizeBytes);
 
                 if (isEligible)
                 {
@@ -269,7 +289,7 @@ public sealed class CompressionEngine : ICompressionEngine
                 }
                 else
                 {
-                    if (smallestAboveTargetCandidate == null || candidateSize < smallestAboveTargetCandidate.Value.SizeBytes)
+                    if (reducesOriginal && (smallestAboveTargetCandidate == null || candidateSize < smallestAboveTargetCandidate.Value.SizeBytes))
                     {
                         smallestAboveTargetCandidate = (attemptWorkingFile, dpi, candidateSize);
                     }
@@ -280,6 +300,11 @@ public sealed class CompressionEngine : ICompressionEngine
 
             if (eligibleCandidate != null)
             {
+                if (!TryGetFinalOutputPath(options, out string finalOutputPath, out string? outputPathError))
+                {
+                    return CreateErrorResult(CompressionStatus.InvalidInput, options.SourceFilePath, pdfInfo.FileSizeBytes, totalStopwatch.Elapsed, outputPathError!, attempts);
+                }
+
                 if (!_fileManager.TryPromoteFile(eligibleCandidate.Value.FilePath, finalOutputPath, out string? copyError))
                 {
                     return CreateErrorResult(
@@ -316,50 +341,31 @@ public sealed class CompressionEngine : ICompressionEngine
                 return successResult;
             }
 
-            if (smallestAboveTargetCandidate != null)
+            if (!attempts.Any(attempt => attempt.Succeeded))
             {
-                if (!_fileManager.TryPromoteFile(smallestAboveTargetCandidate.Value.FilePath, finalOutputPath, out string? copyError))
-                {
-                    return CreateErrorResult(
-                        CompressionStatus.EngineFailed,
-                        sourcePath: options.SourceFilePath,
-                        originalSize: pdfInfo.FileSizeBytes,
-                        duration: totalStopwatch.Elapsed,
-                        attempts: attempts,
-                        message: copyError ?? "Falha ao gravar arquivo de melhor esforço no destino final."
-                    );
-                }
-
-                progress?.Report(new CompressionProgressUpdate(
-                    CurrentAttempt: attempts.Count,
-                    TotalAttempts: totalAttempts,
-                    DpiTested: smallestAboveTargetCandidate.Value.Dpi,
-                    StepDescription: "Compressão concluída em melhor esforço acima do alvo.",
-                    PercentageEstimate: 100
-                ));
-
-                double targetMb = options.TargetSizeBytes.HasValue ? options.TargetSizeBytes.Value / 1_000_000.0 : 0.0;
-                double reachedMb = smallestAboveTargetCandidate.Value.SizeBytes / 1_000_000.0;
-                string effortMessage = $"Nenhuma tentativa atingiu o limite de {targetMb:F2} MB. O menor tamanho obtido foi {reachedMb:F2} MB ({smallestAboveTargetCandidate.Value.Dpi} DPI).";
-
-                var bestEffortResult = new CompressionResult(
-                    Status: CompressionStatus.BestEffortAboveTarget,
+                var failedResult = new CompressionResult(
+                    Status: CompressionStatus.EngineFailed,
                     SourceFilePath: options.SourceFilePath,
-                    OutputFilePath: finalOutputPath,
+                    OutputFilePath: null,
                     OriginalSizeBytes: pdfInfo.FileSizeBytes,
-                    FinalSizeBytes: smallestAboveTargetCandidate.Value.SizeBytes,
-                    FinalDpi: smallestAboveTargetCandidate.Value.Dpi,
+                    FinalSizeBytes: 0,
+                    FinalDpi: null,
                     Attempts: attempts,
                     TotalDuration: totalStopwatch.Elapsed,
-                    Message: effortMessage
+                    Message: "Nenhuma das tentativas de compressão gerou um arquivo PDF válido. O documento pode conter elementos incompatíveis ou estar corrompido."
                 );
 
-                _logger.LogCompressionSummary(bestEffortResult);
-                return bestEffortResult;
+                _logger.LogCompressionSummary(failedResult);
+                return failedResult;
             }
 
-            var failedResult = new CompressionResult(
-                Status: CompressionStatus.EngineFailed,
+            totalStopwatch.Stop();
+            string noReductionMessage = options.TargetSizeBytes.HasValue && smallestAboveTargetCandidate != null
+                ? "Nenhuma tentativa atingiu o tamanho-alvo. Nenhum arquivo novo foi gerado."
+                : "Nenhuma tentativa reduziu o arquivo original. Nenhum arquivo novo foi gerado.";
+
+            var noReductionResult = new CompressionResult(
+                Status: CompressionStatus.NoReduction,
                 SourceFilePath: options.SourceFilePath,
                 OutputFilePath: null,
                 OriginalSizeBytes: pdfInfo.FileSizeBytes,
@@ -367,11 +373,12 @@ public sealed class CompressionEngine : ICompressionEngine
                 FinalDpi: null,
                 Attempts: attempts,
                 TotalDuration: totalStopwatch.Elapsed,
-                Message: "Nenhuma das tentativas de compressão gerou um arquivo PDF válido. O documento pode conter elementos incompatíveis ou estar corrompido."
+                Message: noReductionMessage
             );
 
-            _logger.LogCompressionSummary(failedResult);
-            return failedResult;
+            _logger.LogCompressionSummary(noReductionResult);
+            return noReductionResult;
+
         }
         finally
         {
@@ -382,6 +389,22 @@ public sealed class CompressionEngine : ICompressionEngine
                 _logger.LogWarning($"Aviso de limpeza: O diretório temporário de sessão '{sessionTempDir}' não pôde ser completamente excluído.");
             }
         }
+    }
+
+    private bool TryGetFinalOutputPath(CompressionOptions options, out string outputPath, out string? errorMessage)
+    {
+        outputPath = options.OverwriteTarget
+            ? Path.Combine(options.TargetDirectory, $"{Path.GetFileNameWithoutExtension(options.SourceFilePath)}_compactado{(Path.GetExtension(options.SourceFilePath) is { Length: > 0 } ext ? ext : ".pdf")}")
+            : _fileManager.GenerateSafeOutputFilePath(options.SourceFilePath, options.TargetDirectory);
+
+        if (string.Equals(Path.GetFullPath(options.SourceFilePath), Path.GetFullPath(outputPath), StringComparison.OrdinalIgnoreCase))
+        {
+            errorMessage = "O caminho de saída não pode ser idêntico ao arquivo de entrada para garantir sua imutabilidade. Escolha outro nome ou pasta de destino para preservar o original.";
+            return false;
+        }
+
+        errorMessage = null;
+        return true;
     }
 
     private CompressionResult CreateCancelledResult(

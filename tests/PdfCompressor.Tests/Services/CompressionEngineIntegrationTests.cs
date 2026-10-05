@@ -44,8 +44,8 @@ public sealed class CompressionEngineIntegrationTests : IDisposable
             return;
         }
 
-        string sourcePdf = Path.Combine(_testDir, "multipage_synthetic.pdf");
-        File.WriteAllBytes(sourcePdf, PdfTestFixtures.CreateMultiPagePdf(3));
+        string sourcePdf = Path.Combine(_testDir, "image_synthetic.pdf");
+        File.WriteAllBytes(sourcePdf, PdfTestFixtures.CreateImagePdf(1000, 1000));
         long originalSize = new FileInfo(sourcePdf).Length;
 
         var fileManager = new FileManagerService(Path.Combine(_testDir, "attempts"));
@@ -61,7 +61,7 @@ public sealed class CompressionEngineIntegrationTests : IDisposable
             SourceFilePath: sourcePdf,
             TargetDirectory: _outputDir,
             Preset: CompressionPreset.Automatic,
-            TargetSizeBytes: 10_000_000 // Alvo generoso para teste funcional end-to-end
+            TargetSizeBytes: 1_000_000
         );
 
         var progressUpdates = new List<CompressionProgressUpdate>();
@@ -69,11 +69,12 @@ public sealed class CompressionEngineIntegrationTests : IDisposable
 
         var result = await engine.CompressAsync(options, progress);
 
-        Assert.Equal(CompressionStatus.TargetMet, result.Status);
+        Assert.True(result.Status is CompressionStatus.TargetMet or CompressionStatus.BestEffortAboveTarget);
         Assert.NotNull(result.OutputFilePath);
         Assert.True(File.Exists(result.OutputFilePath));
         Assert.EndsWith("_compactado.pdf", result.OutputFilePath, StringComparison.OrdinalIgnoreCase);
         Assert.True(result.FinalSizeBytes > 0);
+        Assert.True(result.FinalSizeBytes <= originalSize);
         Assert.NotNull(result.FinalDpi);
         Assert.NotEmpty(result.Attempts);
         Assert.True(result.Attempts[0].Succeeded);
@@ -104,8 +105,8 @@ public sealed class CompressionEngineIntegrationTests : IDisposable
             return;
         }
 
-        string sourcePdf = Path.Combine(_testDir, "single_page.pdf");
-        File.WriteAllBytes(sourcePdf, PdfTestFixtures.CreateOnePagePdf());
+        string sourcePdf = Path.Combine(_testDir, "image_single_page.pdf");
+        File.WriteAllBytes(sourcePdf, PdfTestFixtures.CreateImagePdf(1000, 1000));
 
         var fileManager = new FileManagerService(Path.Combine(_testDir, "attempts"));
         var logger = new DiagnosticLogger(Path.Combine(_testDir, "test.log"));
@@ -127,6 +128,7 @@ public sealed class CompressionEngineIntegrationTests : IDisposable
         Assert.Equal(300, result.FinalDpi);
         Assert.NotNull(result.OutputFilePath);
         Assert.True(File.Exists(result.OutputFilePath));
+        Assert.True(result.FinalSizeBytes <= new FileInfo(sourcePdf).Length);
         Assert.Single(result.Attempts);
         Assert.True(result.Attempts[0].Succeeded);
     }

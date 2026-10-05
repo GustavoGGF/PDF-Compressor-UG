@@ -42,6 +42,11 @@ public enum UiState
     BestEffort,
 
     /// <summary>
+    /// Nenhuma tentativa reduziu o arquivo original; nenhum arquivo novo foi gerado.
+    /// </summary>
+    NoReduction,
+
+    /// <summary>
     /// Operação cancelada com segurança pelo usuário, com temporários limpos e arquivo original intacto.
     /// </summary>
     Cancelled,

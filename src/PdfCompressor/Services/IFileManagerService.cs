@@ -40,7 +40,7 @@ public interface IFileManagerService
     /// Promove de forma segura e atômica um arquivo temporário candidato para o caminho final de destino.
     /// Utiliza arquivo intermediário de staging para evitar arquivos parciais ou corrompidos em caso de falha de gravação ou bloqueio.
     /// </summary>
-    /// <param name="sourceTempPath">Caminho do arquivo intermediário gerado com sucesso.</param>
+    /// <param name="sourceTempPath">Caminho do arquivo de origem que será copiado de forma segura; normalmente um intermediário ou o PDF original preservado.</param>
     /// <param name="destinationPath">Caminho absoluto do arquivo final de destino.</param>
     /// <param name="errorMessage">Mensagem de erro amigável e orientada à ação caso a promoção falhe.</param>
     /// <returns>True se a promoção foi concluída com sucesso; false caso contrário.</returns>

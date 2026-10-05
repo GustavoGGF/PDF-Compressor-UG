@@ -85,7 +85,7 @@ public sealed class CompressionEngineOutputAndCleanupTests : IDisposable
     }
 
     [Fact]
-    public async Task CompressAsync_WhenBestEffortPromotionFails_ReturnsEngineFailedAndCleansTemp()
+    public async Task CompressAsync_WhenTargetCannotBeMet_DoesNotPromoteCandidateAndCleansTemp()
     {
         string input = CreateFakePdfFile("grande.pdf", 10_000_000);
         _analyzer.ConfiguredInfo = PdfInfo.Success(input, 10_000_000, 5);
@@ -98,15 +98,12 @@ public sealed class CompressionEngineOutputAndCleanupTests : IDisposable
         _runner.SimulateDpi(100, 2_000_000);
         _runner.SimulateDpi(72, 1_500_000);
 
-        _fileManager.FailPromotion = true;
-        _fileManager.FailPromotionErrorMessage = "Arquivo bloqueado no destino.";
-
         var options = new CompressionOptions(input, _testRoot, CompressionPreset.Automatic, TargetSizeBytes: 1_000_000);
         var result = await _sut.CompressAsync(options);
 
-        Assert.Equal(CompressionStatus.EngineFailed, result.Status);
+        Assert.Equal(CompressionStatus.NoReduction, result.Status);
         Assert.Null(result.OutputFilePath);
-        Assert.Contains("Arquivo bloqueado no destino", result.Message);
+        Assert.DoesNotContain(Directory.EnumerateFiles(_testRoot), path => path.EndsWith("_compactado.pdf", StringComparison.OrdinalIgnoreCase));
         Assert.Equal(_fileManager.CreatedDirectories.Count, _fileManager.DeletedDirectories.Count);
     }
 
@@ -125,12 +122,13 @@ public sealed class CompressionEngineOutputAndCleanupTests : IDisposable
         Assert.Equal(CompressionStatus.InvalidInput, result.Status);
         Assert.Null(result.OutputFilePath);
         Assert.Contains("preservar o original", result.Message);
-        Assert.Empty(_runner.ExecutionCalls);
+        Assert.Single(_runner.ExecutionCalls);
     }
 
     [Theory]
     [InlineData("TargetMet")]
     [InlineData("BestEffortAboveTarget")]
+    [InlineData("NoReduction")]
     [InlineData("Cancelled")]
     [InlineData("EngineFailed")]
     public async Task CompressAsync_InAllTerminalStates_PreservesOriginalHashAndCleansSession(string scenario)
@@ -163,6 +161,12 @@ public sealed class CompressionEngineOutputAndCleanupTests : IDisposable
                     _runner.SimulateFailure(dpi, GhostscriptFailureReason.NonZeroExitCode, "Exit code 1");
                 }
                 break;
+            case "NoReduction":
+                foreach (int dpi in CompressionPresetPolicy.GetDpiSequence(CompressionPreset.Automatic))
+                {
+                    _runner.SimulateDpi(dpi, 3_100_000);
+                }
+                break;
         }
 
         var options = new CompressionOptions(input, _testRoot, CompressionPreset.Automatic, TargetSizeBytes: 1_500_000);
@@ -184,8 +188,8 @@ public sealed class CompressionEngineOutputAndCleanupTests : IDisposable
             }
         }
 
-        // 3. Destino final só possui arquivo válido se o status for TargetMet ou BestEffort
-        if (result.Status == CompressionStatus.TargetMet || result.Status == CompressionStatus.BestEffortAboveTarget)
+        // 3. Destino final só possui arquivo válido se o status for TargetMet
+        if (result.Status == CompressionStatus.TargetMet)
         {
             Assert.NotNull(result.OutputFilePath);
             Assert.True(File.Exists(result.OutputFilePath));
