@@ -24,6 +24,9 @@ public partial class MainForm : Form, IUiDispatcher
         _services = services ?? throw new ArgumentNullException(nameof(services));
         InitializeComponent();
 
+        // Reutiliza o ícone configurado no executável também na barra de título do formulário.
+        Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+
         _viewModel = new MainFormViewModel(services, dispatcher: this);
         _viewModel.StateChanged += OnViewModelStateChanged;
 
