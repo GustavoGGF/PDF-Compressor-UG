@@ -259,7 +259,9 @@ partial class MainForm
         this.lblProgressDetails.TextAlign = ContentAlignment.MiddleRight;
 
         // 4. Resultado da Compressão
-        this.grpResult.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+        // O conteúdo permanece em uma área rolável quando a janela fica menor que o fluxo vertical.
+        // Ancorar este grupo ao fundo fazia os botões serem cortados durante o redimensionamento.
+        this.grpResult.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         this.grpResult.Controls.AddRange(new Control[] { lblResultBanner, lblResultOriginal, lblResultFinal, lblResultReduction, lblResultDpi, lblResultOutput, btnOpenPdf, btnOpenFolder, btnReset });
         this.grpResult.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
         this.grpResult.Location = new Point(12, 420);
@@ -337,6 +339,8 @@ partial class MainForm
 
         // MainForm Form Base
         this.AllowDrop = true;
+        this.AutoScroll = true;
+        this.AutoScrollMinSize = MainFormLayout.RequiredContentSize;
         this.AutoScaleDimensions = new SizeF(7F, 15F);
         this.AutoScaleMode = AutoScaleMode.Font;
         this.ClientSize = new Size(744, 621);
