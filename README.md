@@ -15,9 +15,3 @@ Este software utiliza localmente o **Ghostscript** (binário `gswin64c.exe` no W
   3. Variável de ambiente `PATH`.
 
 ---
-
-## Documentação do projeto
-
-- [Levantamento de necessidades](levantamento-necessidades-pdf-compressor.md)
-- [Plano de desenvolvimento por etapas](docs/plano-pdf-compressor/00-indice.md)
-- [Validação no Windows (Etapa 8)](docs/plano-pdf-compressor/09-validacao-windows.md)
