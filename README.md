@@ -110,13 +110,3 @@ dotnet test tests/PdfCompressor.Tests/PdfCompressor.Tests.csproj
 ## Licença
 
 Consulte os arquivos e avisos de licença distribuídos com o projeto e com o Ghostscript. O Ghostscript é uma dependência externa licenciada sob AGPL.
-
-## Relatar problemas
-
-Encontrou um erro ou tem uma sugestão? Abra uma [issue no GitHub](https://github.com/GustavoGGF/PDF-Compressor-UG/issues) descrevendo:
-
-- versão do aplicativo;
-- versão do Windows;
-- versão do Ghostscript;
-- passos para reproduzir o problema;
-- mensagem de erro apresentada.
