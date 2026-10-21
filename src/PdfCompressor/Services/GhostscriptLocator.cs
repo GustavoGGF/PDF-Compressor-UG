@@ -12,6 +12,7 @@ public sealed class GhostscriptLocator : IGhostscriptLocator
 
     private readonly IGhostscriptSystemEnvironment _environment;
     private readonly IDiagnosticLogger? _logger;
+    private string? _cachedPath;
 
     public GhostscriptLocator(
         IGhostscriptSystemEnvironment? environment = null,
@@ -39,11 +40,23 @@ public sealed class GhostscriptLocator : IGhostscriptLocator
             }
         }
 
+        if (_cachedPath != null)
+        {
+            if (_environment.FileExists(_cachedPath))
+            {
+                return _cachedPath;
+            }
+
+            _logger?.LogWarning($"O executável do Ghostscript no caminho em cache '{_cachedPath}' não existe mais. Buscando novamente...");
+            _cachedPath = null;
+        }
+
         // 2. Procura em diretórios padrão do Program Files (C:\Program Files\gs\gs*\bin\gswin64c.exe)
         var programFilesResult = SearchProgramFiles();
         if (programFilesResult != null)
         {
             _logger?.LogInfo($"Ghostscript localizado no Program Files: {programFilesResult}");
+            _cachedPath = programFilesResult;
             return programFilesResult;
         }
 
@@ -52,6 +65,7 @@ public sealed class GhostscriptLocator : IGhostscriptLocator
         if (registryResult != null)
         {
             _logger?.LogInfo($"Ghostscript localizado via Registro do Windows: {registryResult}");
+            _cachedPath = registryResult;
             return registryResult;
         }
 
@@ -60,6 +74,7 @@ public sealed class GhostscriptLocator : IGhostscriptLocator
         if (pathResult != null)
         {
             _logger?.LogInfo($"Ghostscript localizado via variável PATH: {pathResult}");
+            _cachedPath = pathResult;
             return pathResult;
         }
 

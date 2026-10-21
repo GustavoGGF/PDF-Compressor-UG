@@ -27,28 +27,28 @@ internal static partial class PdfContentInspector
     private const int OverlapSize = 1024; // 1 KB para evitar corte de tokens
 
     // Heurísticas compiladas e rápidas
-    [GeneratedRegex(@"%PDF-[0-9]\.[0-9]", RegexOptions.Compiled)]
+    [GeneratedRegex(@"%PDF-[0-9]\.[0-9]")]
     private static partial Regex HeaderRegex();
 
-    [GeneratedRegex(@"%%EOF", RegexOptions.Compiled)]
+    [GeneratedRegex(@"%%EOF")]
     private static partial Regex EofRegex();
 
-    [GeneratedRegex(@"/Encrypt\b", RegexOptions.Compiled)]
+    [GeneratedRegex(@"/Encrypt\b")]
     private static partial Regex EncryptRegex();
 
-    [GeneratedRegex(@"/ByteRange\b", RegexOptions.Compiled)]
+    [GeneratedRegex(@"/ByteRange\b")]
     private static partial Regex ByteRangeRegex();
 
-    [GeneratedRegex(@"/(?:Type|FT)\s*/Sig\b", RegexOptions.Compiled)]
+    [GeneratedRegex(@"/(?:Type|FT)\s*/Sig\b")]
     private static partial Regex SigTypeRegex();
 
-    [GeneratedRegex(@"/Contents\s*<[0-9a-fA-F\s]+>", RegexOptions.Compiled)]
+    [GeneratedRegex(@"/Contents\s*<[0-9a-fA-F\s]+>")]
     private static partial Regex HexContentsRegex();
 
-    [GeneratedRegex(@"<<[^>]*?/Type\s*/Pages\b[^>]*?/Count\s+(?<count>\d+)[^>]*?>>", RegexOptions.Compiled | RegexOptions.Singleline)]
+    [GeneratedRegex(@"<<[^>]*?/Type\s*/Pages\b[^>]*?/Count\s+(?<count>\d+)[^>]*?>>", RegexOptions.Singleline)]
     private static partial Regex PagesDictWithCountRegex();
 
-    [GeneratedRegex(@"<<[^>]*?/Count\s+(?<count>\d+)[^>]*?/Type\s*/Pages\b[^>]*?>>", RegexOptions.Compiled | RegexOptions.Singleline)]
+    [GeneratedRegex(@"<<[^>]*?/Count\s+(?<count>\d+)[^>]*?/Type\s*/Pages\b[^>]*?>>", RegexOptions.Singleline)]
     private static partial Regex CountBeforePagesDictRegex();
 
     /// <summary>
@@ -88,7 +88,7 @@ internal static partial class PdfContentInspector
         int headerBytesToRead = (int)Math.Min(length, HeaderBufferSize);
         byte[] headerBuffer = new byte[headerBytesToRead];
         await stream.ReadExactlyAsync(headerBuffer, 0, headerBytesToRead, cancellationToken);
-        string headerText = Encoding.ASCII.GetString(headerBuffer);
+        var headerText = Encoding.ASCII.GetString(headerBuffer);
 
         if (!HeaderRegex().IsMatch(headerText))
         {
@@ -132,6 +132,7 @@ internal static partial class PdfContentInspector
         // Leitura em blocos sobrepostos para garantir detecção sem carregar todo o arquivo na memória
         stream.Seek(0, SeekOrigin.Begin);
         byte[] buffer = new byte[ChunkBufferSize];
+        char[] charBuffer = new char[ChunkBufferSize];
         int bytesRead;
         long currentPosition = 0;
 
@@ -139,28 +140,7 @@ internal static partial class PdfContentInspector
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Decodifica como Latin1 para preservar 1 byte por caractere sem corromper posições
-            string chunkText = Encoding.Latin1.GetString(buffer, 0, bytesRead);
-
-            // Criptografia
-            if (!isEncrypted && EncryptRegex().IsMatch(chunkText))
-            {
-                isEncrypted = true;
-            }
-
-            // Assinatura digital heurística
-            if (!hasByteRange && ByteRangeRegex().IsMatch(chunkText))
-            {
-                hasByteRange = true;
-            }
-
-            if (!hasSigMarker && (SigTypeRegex().IsMatch(chunkText) || HexContentsRegex().IsMatch(chunkText)))
-            {
-                hasSigMarker = true;
-            }
-
-            // Contagem de páginas: varre nós /Type /Pages
-            ExtractPageCountsFromChunk(chunkText, ref maxPageCount);
+            ProcessChunk(buffer, bytesRead, charBuffer, ref isEncrypted, ref hasByteRange, ref hasSigMarker, ref maxPageCount);
 
             currentPosition += bytesRead;
             if (currentPosition >= length)
@@ -187,107 +167,197 @@ internal static partial class PdfContentInspector
         );
     }
 
-    private static void ExtractPageCountsFromChunk(string text, ref int? currentMax)
+    private static void ProcessChunk(byte[] buffer, int bytesRead, char[] charBuffer, ref bool isEncrypted, ref bool hasByteRange, ref bool hasSigMarker, ref int? maxPageCount)
+    {
+        int charsDecoded = Encoding.Latin1.GetChars(buffer.AsSpan(0, bytesRead), charBuffer.AsSpan());
+        var chunkSpan = charBuffer.AsSpan(0, charsDecoded);
+
+        if (!isEncrypted && EncryptRegex().IsMatch(chunkSpan))
+        {
+            isEncrypted = true;
+        }
+
+        if (!hasByteRange && ByteRangeRegex().IsMatch(chunkSpan))
+        {
+            hasByteRange = true;
+        }
+
+        if (!hasSigMarker && (SigTypeRegex().IsMatch(chunkSpan) || HexContentsRegex().IsMatch(chunkSpan)))
+        {
+            hasSigMarker = true;
+        }
+
+        ExtractPageCountsFromChunk(chunkSpan, ref maxPageCount);
+    }
+
+    private static void ExtractPageCountsFromChunk(ReadOnlySpan<char> text, ref int? currentMax)
     {
         // 1. Procura << ... /Type /Pages ... /Count N ... >>
-        foreach (Match match in PagesDictWithCountRegex().Matches(text))
+        foreach (var match in PagesDictWithCountRegex().EnumerateMatches(text))
         {
-            if (int.TryParse(match.Groups["count"].Value, out int count) && count > 0)
-            {
-                currentMax = currentMax.HasValue ? Math.Max(currentMax.Value, count) : count;
-            }
+            var matchSpan = text.Slice(match.Index, match.Length);
+            ExtractAllCounts(matchSpan, ref currentMax);
         }
 
         // 2. Procura << ... /Count N ... /Type /Pages ... >>
-        foreach (Match match in CountBeforePagesDictRegex().Matches(text))
+        foreach (var match in CountBeforePagesDictRegex().EnumerateMatches(text))
         {
-            if (int.TryParse(match.Groups["count"].Value, out int count) && count > 0)
-            {
-                currentMax = currentMax.HasValue ? Math.Max(currentMax.Value, count) : count;
-            }
+            var matchSpan = text.Slice(match.Index, match.Length);
+            ExtractAllCounts(matchSpan, ref currentMax);
         }
+    }
+
+    private static void ExtractAllCounts(ReadOnlySpan<char> matchSpan, ref int? currentMax)
+    {
+        int offset = 0;
+        while (offset < matchSpan.Length)
+        {
+            var span = matchSpan.Slice(offset);
+            int index = span.IndexOf("/Count", StringComparison.Ordinal);
+            if (index < 0)
+            {
+                break;
+            }
+
+            var afterCount = span.Slice(index + 6); // length of "/Count"
+            bool extracted = ExtractNumberFromSpan(afterCount, ref currentMax);
+
+            // Advance offset
+            offset += index + 6;
+            // Also need to advance past the number, but skipping just 6 is safe enough for another loop iteration
+        }
+    }
+
+    private static bool ExtractNumberFromSpan(ReadOnlySpan<char> span, ref int? currentMax)
+    {
+        // Skip whitespace
+        int i = 0;
+        while (i < span.Length && char.IsWhiteSpace(span[i]))
+        {
+            i++;
+        }
+
+        // Parse number
+        int number = 0;
+        bool hasDigits = false;
+        while (i < span.Length && char.IsAsciiDigit(span[i]))
+        {
+            number = number * 10 + (span[i] - '0');
+            hasDigits = true;
+            i++;
+        }
+
+        if (hasDigits && number > 0)
+        {
+            currentMax = currentMax.HasValue ? Math.Max(currentMax.Value, number) : number;
+            return true;
+        }
+
+        return false;
     }
 
     private static async Task<string?> FindTrailerTextAsync(Stream stream, long fileLength, CancellationToken cancellationToken)
     {
+        // Tenta usar ArrayPool para não alocar arrays grandes de forma desnecessária
+        var pool = System.Buffers.ArrayPool<byte>.Shared;
+
         // 1. Tenta ler uma janela inicial do final (64 KB)
         int initialWindow = (int)Math.Min(fileLength, TrailerBufferSize);
         stream.Seek(fileLength - initialWindow, SeekOrigin.Begin);
-        byte[] buffer = new byte[initialWindow];
-        await stream.ReadExactlyAsync(buffer, 0, initialWindow, cancellationToken).ConfigureAwait(false);
-
-        // 2. Se encontrar %%EOF no final, retorna o texto do trailer
-        string trailerText = Encoding.Latin1.GetString(buffer);
-        if (EofRegex().IsMatch(trailerText))
+        byte[] buffer = pool.Rent(initialWindow);
+        try
         {
-            return trailerText;
-        }
+            await stream.ReadExactlyAsync(buffer, 0, initialWindow, cancellationToken).ConfigureAwait(false);
 
-        // 3. Verifica se o final do arquivo é composto apenas por bytes nulos ou espaços em branco (padding)
-        // Percorremos de trás para frente até encontrar o último byte não-nulo e não-espaço.
-        int nonPaddingEndIndex = -1;
-        for (int i = buffer.Length - 1; i >= 0; i--)
-        {
-            byte b = buffer[i];
-            if (b != 0 && b != (byte)' ' && b != (byte)'\r' && b != (byte)'\n' && b != (byte)'\t')
+            // 2. Se encontrar %%EOF no final, retorna o texto do trailer
+            string trailerText = Encoding.Latin1.GetString(buffer, 0, initialWindow);
+            if (EofRegex().IsMatch(trailerText))
             {
-                nonPaddingEndIndex = i;
-                break;
+                return trailerText;
             }
-        }
 
-        long actualContentEnd;
-        if (nonPaddingEndIndex >= 0)
-        {
-            actualContentEnd = (fileLength - initialWindow) + nonPaddingEndIndex + 1;
-        }
-        else
-        {
-            // Toda a janela inicial de 64 KB é composta de zeros/espaços (ex: arquivos com preenchimento em blocos).
-            // Varre de trás para frente em blocos de 64 KB até achar bytes válidos de conteúdo.
-            actualContentEnd = fileLength - initialWindow;
-            byte[] scanBuffer = new byte[ChunkBufferSize];
-
-            while (actualContentEnd > 0)
+            // 3. Verifica se o final do arquivo é composto apenas por bytes nulos ou espaços em branco (padding)
+            // Percorremos de trás para frente até encontrar o último byte não-nulo e não-espaço.
+            int nonPaddingEndIndex = -1;
+            for (int i = initialWindow - 1; i >= 0; i--)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                int toRead = (int)Math.Min(actualContentEnd, ChunkBufferSize);
-                long offset = actualContentEnd - toRead;
-                stream.Seek(offset, SeekOrigin.Begin);
-                await stream.ReadExactlyAsync(scanBuffer, 0, toRead, cancellationToken).ConfigureAwait(false);
-
-                int foundIndex = -1;
-                for (int i = toRead - 1; i >= 0; i--)
+                byte b = buffer[i];
+                if (b != 0 && b != (byte)' ' && b != (byte)'\r' && b != (byte)'\n' && b != (byte)'\t')
                 {
-                    byte b = scanBuffer[i];
-                    if (b != 0 && b != (byte)' ' && b != (byte)'\r' && b != (byte)'\n' && b != (byte)'\t')
-                    {
-                        foundIndex = i;
-                        break;
-                    }
-                }
-
-                if (foundIndex >= 0)
-                {
-                    actualContentEnd = offset + foundIndex + 1;
+                    nonPaddingEndIndex = i;
                     break;
                 }
+            }
 
-                actualContentEnd = offset;
+            long actualContentEnd;
+            if (nonPaddingEndIndex >= 0)
+            {
+                actualContentEnd = (fileLength - initialWindow) + nonPaddingEndIndex + 1;
+            }
+            else
+            {
+                // Toda a janela inicial de 64 KB é composta de zeros/espaços (ex: arquivos com preenchimento em blocos).
+                // Varre de trás para frente em blocos de 64 KB até achar bytes válidos de conteúdo.
+                actualContentEnd = fileLength - initialWindow;
+                byte[] scanBuffer = pool.Rent(ChunkBufferSize);
+                try
+                {
+                    while (actualContentEnd > 0)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        int toRead = (int)Math.Min(actualContentEnd, ChunkBufferSize);
+                        long offset = actualContentEnd - toRead;
+                        stream.Seek(offset, SeekOrigin.Begin);
+                        await stream.ReadExactlyAsync(scanBuffer, 0, toRead, cancellationToken).ConfigureAwait(false);
+
+                        int foundIndex = -1;
+                        for (int i = toRead - 1; i >= 0; i--)
+                        {
+                            byte b = scanBuffer[i];
+                            if (b != 0 && b != (byte)' ' && b != (byte)'\r' && b != (byte)'\n' && b != (byte)'\t')
+                            {
+                                foundIndex = i;
+                                break;
+                            }
+                        }
+
+                        if (foundIndex >= 0)
+                        {
+                            actualContentEnd = offset + foundIndex + 1;
+                            break;
+                        }
+
+                        actualContentEnd = offset;
+                    }
+                }
+                finally
+                {
+                    pool.Return(scanBuffer);
+                }
+            }
+
+            if (actualContentEnd <= 0)
+            {
+                return null;
+            }
+
+            // Lê a janela do trailer posicionada logo antes do final do conteúdo real
+            int actualTrailerBytes = (int)Math.Min(actualContentEnd, TrailerBufferSize);
+            stream.Seek(actualContentEnd - actualTrailerBytes, SeekOrigin.Begin);
+            byte[] finalTrailerBuffer = pool.Rent(actualTrailerBytes);
+            try
+            {
+                await stream.ReadExactlyAsync(finalTrailerBuffer, 0, actualTrailerBytes, cancellationToken).ConfigureAwait(false);
+                return Encoding.Latin1.GetString(finalTrailerBuffer, 0, actualTrailerBytes);
+            }
+            finally
+            {
+                pool.Return(finalTrailerBuffer);
             }
         }
-
-        if (actualContentEnd <= 0)
+        finally
         {
-            return null;
+            pool.Return(buffer);
         }
-
-        // Lê a janela do trailer posicionada logo antes do final do conteúdo real
-        int actualTrailerBytes = (int)Math.Min(actualContentEnd, TrailerBufferSize);
-        stream.Seek(actualContentEnd - actualTrailerBytes, SeekOrigin.Begin);
-        byte[] finalTrailerBuffer = new byte[actualTrailerBytes];
-        await stream.ReadExactlyAsync(finalTrailerBuffer, 0, actualTrailerBytes, cancellationToken).ConfigureAwait(false);
-
-        return Encoding.Latin1.GetString(finalTrailerBuffer);
     }
 }
